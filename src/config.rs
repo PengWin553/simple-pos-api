@@ -21,6 +21,7 @@ pub async fn init_config() -> Config {
     let s3_access_key = std::env::var("S3_ACCESS_KEY").expect("S3_ACCESS_KEY not found in env file");
     let s3_secret_key = std::env::var("S3_SECRET_KEY").expect("S3_SECRET_KEY not found in env file");
     let s3_bucket = std::env::var("S3_BUCKET").expect("S3_BUCKET not found in env file");
+    let s3_region = std::env::var("S3_REGION").expect("S3_REGION not found in env file");
 
     let db_pool = PgPoolOptions::new()
         .max_connections(64)
@@ -30,7 +31,7 @@ pub async fn init_config() -> Config {
         .expect("Can't connect to database");
 
     let region = Region::Custom {
-        region: "".to_owned(),
+        region: s3_region.to_owned(),
         endpoint: s3_endpoint.to_owned(),
     };
     let credentials = Credentials {

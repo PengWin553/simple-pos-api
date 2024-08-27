@@ -78,7 +78,7 @@ pub async fn get_all_products(
 
 pub async fn get_product(
     State(app_state): State<Arc<AppState>>,
-    Path(product_id): Path<Uuid>,
+    Path(product_id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<Value>)> {
 
     let product = sqlx::query_as!(
@@ -105,6 +105,8 @@ pub async fn get_product(
         )
     })?;
 
+    // product.product_image = app_state.s3.presign_get(product.product_image, 100, None).await.unwrap();
+
     Ok((
         StatusCode::OK,
         Json(json!({
@@ -129,49 +131,56 @@ pub async fn create_product(
         product_image: None,
     };
 
-    while let Some(field) = multipart
-        .next_field()
-        .await
-        .unwrap() {
-            match field.name() {
-                Some("product_name") => {
-                    if let Ok(text) = field.text().await {
-                        product.product_name = Some(text);
-                    }
-                }
-                Some("price") => {
-                    if let Ok(price_str) = field.text().await {
-                        product.price = Some(price_str.parse::<Decimal>().unwrap());
-                    }
-                }
-                Some("stock") => {
-                    if let Ok(stock_str) = field.text().await {
-                        product.stock = Some(stock_str.parse::<i32>().unwrap());
-                    }
-                }
-                Some("sku") => {
-                    if let Ok(text) = field.text().await {
-                        product.sku = Some(text);
-                    }
-                }
-                Some("category_id") => {
-                    if let Ok(id_str) = field.text().await {
-                        product.category_id = Some(Uuid::parse_str(&id_str).unwrap());
-                    }
-                }
-                Some("product_image") => {
-                    product.product_image = Some(process_product_image(field, &app_state).await?);
-                }
-                _ => {
-                    return Err((
-                        StatusCode::BAD_REQUEST,
-                        Json(json!({
-                            "error": "Unexpected field found in form data"
-                        })),
-                    ));
+    while let Ok(Some(field)) = multipart.next_field().await {
+        match field.name() {
+            Some("product_name") => {
+                if let Ok(text) = field.text().await {
+                    product.product_name = Some(text);
                 }
             }
+            Some("price") => {
+                if let Ok(price_str) = field.text().await {
+                    product.price = Some(price_str.parse::<Decimal>().unwrap_or(Decimal::new(0, 0)));
+                }
+            }
+            Some("stock") => {
+                if let Ok(stock_str) = field.text().await {
+                    product.stock = Some(stock_str.parse::<i32>().unwrap_or(0));
+                }
+            }
+            Some("sku") => {
+                if let Ok(text) = field.text().await {
+                    product.sku = Some(text);
+                }
+            }
+            Some("category_id") => {
+                if let Ok(id_str) = field.text().await {
+                    product.category_id = Some(
+                        Uuid::parse_str(&id_str)
+                        .map_err(|_| (
+                            StatusCode::BAD_GATEWAY,
+                            Json(json!({
+                                "error": "Invalid UUID format for category_id"
+                            })),
+                        ))?
+                    );
+                }
+            }
+            Some("product_image") => {
+                product.product_image = Some(process_product_image(field, &app_state).await?);
+            }
+            _ => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "error": "Unexpected field found in form data"
+                    })),
+                ));
+            }
         }
+    }
+
+    let product_id = data_encoding::BASE64URL_NOPAD.encode( Uuid::new_v4().as_bytes());
 
     let product = sqlx::query_as!(
         PostProductModel,
@@ -180,7 +189,7 @@ pub async fn create_product(
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING *
         "#,
-        Uuid::new_v4(),
+        product_id,
         product.product_name,
         product.price,
         product.stock,
@@ -211,9 +220,63 @@ pub async fn create_product(
 
 pub async fn update_product(
     State(app_state): State<Arc<AppState>>,
-    Path(product_id): Path<Uuid>,
-    Json(update_product): Json<PostProductModel>,
+    Path(product_id): Path<String>,
+    mut multipart: Multipart,
 ) ->  Result<impl IntoResponse, (StatusCode, Json<Value>)> {
+
+    let mut update_product = PostProductModel {
+        product_id: None,
+        product_name: None,
+        price: None,
+        stock: None,
+        sku: None,
+        category_id: None,
+        product_image: None,
+    };
+
+    while let Ok(Some(field)) = multipart.next_field().await {
+        match field.name() {
+            Some("product_name") => {
+                if let Ok(text) = field.text().await {
+                    update_product.product_name = Some(text);
+                }
+            }
+            Some("price") => {
+                if let Ok(price_str) = field.text().await {
+                    if let Ok(price) = price_str.parse::<Decimal>() {
+                        update_product.price = Some(price);
+                    }
+                }
+            }
+            Some("stock") => {
+                if let Ok(stock_str) = field.text().await {
+                    if let Ok(stock) = stock_str.parse::<i32>() {
+                        update_product.stock = Some(stock);
+                    }
+                }
+            }
+            Some("sku") => {
+                if let Ok(text) = field.text().await {
+                    update_product.sku = Some(text);
+                }
+            }
+            Some("category_id") => {
+                if let Ok(id_str) = field.text().await {
+                    if let Ok(uuid) = Uuid::parse_str(&id_str) {
+                        update_product.category_id = Some(uuid);
+                    }
+                }
+            }
+            Some("product_image") => {
+                if let Ok(image) = process_product_image(field, &app_state).await {
+                    update_product.product_image = Some(image)
+                }
+            }
+            _ => {
+                continue;
+            }
+        }
+    }
 
     sqlx::query!(
         r#"
@@ -223,14 +286,16 @@ pub async fn update_product(
                 price = COALESCE($2, price),
                 stock = COALESCE($3, stock),
                 sku = COALESCE($4, sku),
-                category_id = COALESCE($5, category_id)
-            WHERE product_id = $6
+                category_id = COALESCE($5, category_id),
+                product_image = COALESCE($6, product_image)
+            WHERE product_id = $7
         "#,
         update_product.product_name,
         update_product.price,
         update_product.stock,
         update_product.sku,
         update_product.category_id,
+        update_product.product_image,
         product_id,
     )
     .execute(&app_state.db)
@@ -256,7 +321,7 @@ pub async fn update_product(
 
 pub async fn delete_product(
     State(app_state): State<Arc<AppState>>,
-    Path(product_id): Path<Uuid>,
+    Path(product_id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<Value>)> {
 
     sqlx::query!(

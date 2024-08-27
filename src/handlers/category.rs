@@ -78,6 +78,8 @@ pub async fn create_category(
     Json(category): Json<CategoryModel> 
 ) -> Result<impl IntoResponse, (StatusCode, Json<Value>)> {
 
+    let category_id = data_encoding::BASE64URL_NOPAD.encode( Uuid::new_v4().as_bytes());
+
     let category = sqlx::query_as!(
         CategoryModel,
         r#"
@@ -85,7 +87,7 @@ pub async fn create_category(
             VALUES ($1, $2)
             RETURNING *
         "#,
-        Uuid::new_v4(),
+        category_id,
         category.category_name,
     )
     .fetch_one(&app_state.db)
@@ -109,7 +111,7 @@ pub async fn create_category(
 
 pub async fn update_category(
     State(app_state): State<Arc<AppState>>,
-    Path(category_id): Path<Uuid>,
+    Path(category_id): Path<String>,
     Json(update_category): Json<CategoryModel>
 ) -> Result<impl IntoResponse, (StatusCode, Json<Value>)> {
 
@@ -144,7 +146,7 @@ pub async fn update_category(
 
 pub async fn delete_category(
     State(app_state): State<Arc<AppState>>,
-    Path(category_id): Path<Uuid>
+    Path(category_id): Path<String>
 ) -> Result<impl IntoResponse, (StatusCode, Json<Value>)> {
 
     sqlx::query!(
