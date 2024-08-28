@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::AppState;
 
-pub async fn process_product_image<'a>(
+pub async fn upload_image<'a>(
     field: Field<'a>,
     app_state: &'a AppState,
 ) -> Result<String, (StatusCode, Json<Value>)> {
@@ -28,17 +28,6 @@ pub async fn process_product_image<'a>(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": e.to_string()})),
         ))?;
-
-    // let s3_endpoint = std::env::var("S3_ENDPOINT")
-    //     .expect("S3_ENDPOINT not found in env file");
-
-        // let mut custom_queries = HashMap::new();
-        // custom_queries.insert(
-        //    "response-content-disposition".into(),
-        //    "attachment; filename=\"test.png\"".into(),
-        // );
         
-        // let url = app_state.s3.presign_get(s3_path, 86400, None).await.unwrap();
-
     Ok(s3_path)
 }

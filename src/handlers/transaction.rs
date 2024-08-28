@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use axum::{extract::{Query, State}, http::StatusCode, response::IntoResponse, Json};
 use chrono::Utc;
+use rust_decimal::{prelude::FromPrimitive, Decimal};
 use serde_json::{json, Value};
 use uuid::Uuid;
 use crate::{models::{filter_model::FilterOptionsModel, transactions_model::{TransactionInputModel, TransactionModel}}, AppState};
@@ -19,7 +20,7 @@ pub async fn get_all_transactions(
     let total_transactions: Option<i64> = sqlx::query_scalar!(
         r#"
             SELECT COUNT(*)
-            FROM products
+            FROM transactions
         "#
     )
     .fetch_one(&app_state.db)
@@ -75,20 +76,40 @@ pub async fn create_transaction(
     Json(transactions): Json<TransactionInputModel>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<Value>)> {
 
-    let total_price = transactions.total_price;
+    // let total_price = transactions.total_price;
     let transaction_items = json!(transactions.transaction_items);
+
+    let item_count = transaction_items
+        .as_array()
+        .map(|arr| arr.len())
+        .unwrap_or(0);
+
+    // let total_price = transactions.transaction_items.iter().fold(Decimal::ZERO, |acc, item| {
+    //     acc + (Decimal::from_f64(item.price).unwrap() * Decimal::from(item.quantity))
+    // });
+
+    let total_price = transactions.transaction_items.iter().fold(Decimal::ZERO, |acc, item| {
+        if let Some(price) = Decimal::from_f64(item.price) {
+            acc + (price * Decimal::from(item.quantity))
+        } else {
+            acc
+        }
+    });
+
+    let transaction_id = data_encoding::BASE64URL_NOPAD.encode( Uuid::new_v4().as_bytes());
 
     let result = sqlx::query_as!(
         TransactionModel,
         r#"
-            INSERT INTO transactions (transaction_id, transaction_date, total_price, transaction_items)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO transactions (transaction_id, transaction_date, total_price, transaction_items, item_count)
+            VALUES ($1, $2, $3, $4, $5)
             RETURNING *
         "#,
-        Uuid::new_v4(),
+        transaction_id,
         Utc::now(),
         total_price,
         transaction_items,
+        item_count as i32,
     )
         .fetch_all(&app_state.db)
         .await

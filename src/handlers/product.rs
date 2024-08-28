@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 use std::sync::Arc;
 
-use crate::{models::{filter_model::FilterOptionsModel, products_model::{GetProductModel, PostProductModel}}, services::image_service::process_product_image, AppState
+use crate::{models::{filter_model::FilterOptionsModel, products_model::{GetProductModel, PostProductModel}}, services::image_service::upload_image, AppState
 };
 
 pub async fn get_all_products(
@@ -35,7 +35,7 @@ pub async fn get_all_products(
         )
     })?;
 
-    let product = sqlx::query_as!(
+    let mut products = sqlx::query_as!(
         GetProductModel,
         r#"
             SELECT
@@ -62,9 +62,25 @@ pub async fn get_all_products(
             )
         })?;
     
+    for product in &mut products {
+        if let Some(image) = &product.product_image {
+            let presign_url = app_state.s3.presign_get(image, 86400, None).await.map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({
+                        "success": false,
+                        "message": "Failed to generate presigned URL",
+                    })),
+                )
+            })?;
+
+            product.product_image = Some(presign_url);
+        }
+    }
+    
     let json_response = json!({
         "success" : true,
-        "data" : product,
+        "data" : products,
         "total": total_products,
         "limit": limit,
         "offset": offset,
@@ -81,7 +97,7 @@ pub async fn get_product(
     Path(product_id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<Value>)> {
 
-    let product = sqlx::query_as!(
+    let mut product = sqlx::query_as!(
         GetProductModel,
         r#"
             SELECT
@@ -105,7 +121,16 @@ pub async fn get_product(
         )
     })?;
 
-    // product.product_image = app_state.s3.presign_get(product.product_image, 100, None).await.unwrap();
+    if let Some(image) = &product.product_image {
+        let presign_url = app_state.s3.presign_get(image, 86400, None).await.map_err(|_| {
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({
+                "success": false,
+                "message": "Failed to generate presigned URL",
+            })))
+        })?;
+        
+        product.product_image = Some(presign_url);
+    }
 
     Ok((
         StatusCode::OK,
@@ -155,19 +180,11 @@ pub async fn create_product(
             }
             Some("category_id") => {
                 if let Ok(id_str) = field.text().await {
-                    product.category_id = Some(
-                        Uuid::parse_str(&id_str)
-                        .map_err(|_| (
-                            StatusCode::BAD_GATEWAY,
-                            Json(json!({
-                                "error": "Invalid UUID format for category_id"
-                            })),
-                        ))?
-                    );
+                    product.category_id = Some(id_str);
                 }
             }
             Some("product_image") => {
-                product.product_image = Some(process_product_image(field, &app_state).await?);
+                product.product_image = Some(upload_image(field, &app_state).await?);
             }
             _ => {
                 return Err((
@@ -262,13 +279,11 @@ pub async fn update_product(
             }
             Some("category_id") => {
                 if let Ok(id_str) = field.text().await {
-                    if let Ok(uuid) = Uuid::parse_str(&id_str) {
-                        update_product.category_id = Some(uuid);
-                    }
+                    update_product.category_id = Some(id_str);
                 }
             }
             Some("product_image") => {
-                if let Ok(image) = process_product_image(field, &app_state).await {
+                if let Ok(image) = upload_image(field, &app_state).await {
                     update_product.product_image = Some(image)
                 }
             }
