@@ -4,7 +4,12 @@ use chrono::Utc;
 use rust_decimal::{prelude::FromPrimitive, Decimal};
 use serde_json::{json, Value};
 use uuid::Uuid;
-use crate::{models::{filter_model::FilterOptionsModel, transactions_model::{TransactionInputModel, TransactionModel}}, AppState};
+use crate::{
+    models::{
+        filter_model::FilterOptionsModel,
+        transactions_model::{TransactionInputModel, TransactionModel}},
+    AppState
+};
 
 
 pub async fn get_all_transactions(

@@ -11,10 +11,11 @@ pub struct Config {
 }
 
 pub async fn init_config() -> Config {
-    dotenvy::dotenv().expect("Unable to access .env file");
+    dotenvy::dotenv().ok();
 
     let server_address = std::env::var("SERVER_ADDRESS").expect("SERVER_ADDRESS not found in env file");
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL not found in env file");
+    
     let jwt_secret = std::env::var("JWT_SECRET").expect("JWT_SECRET not found in env file");
 
     let s3_endpoint = std::env::var("S3_ENDPOINT").expect("S3_ENDPOINT not found in env file");

@@ -2,9 +2,15 @@ use axum::{extract::{Multipart, Path, Query, State}, http::StatusCode, response:
 use rust_decimal::Decimal;
 use serde_json::{json, Value};
 use uuid::Uuid;
+use chrono::Utc;
 use std::sync::Arc;
 
-use crate::{models::{filter_model::FilterOptionsModel, products_model::{GetProductModel, PostProductModel}}, services::image_service::upload_image, AppState
+use crate::{
+    models::{
+        filter_model::FilterOptionsModel,
+        products_model::{GetProductModel, PostProductModel}},
+    services::image_service::upload_image,
+    AppState
 };
 
 pub async fn get_all_products(
@@ -39,7 +45,7 @@ pub async fn get_all_products(
         GetProductModel,
         r#"
             SELECT
-                product_id, product_name, price, stock, sku, category_name, product_image
+                product_id, product_name, price, stock, sku, category_name, product_image, products.created_at, products.updated_at
             FROM products
             LEFT JOIN categories
             ON products.category_id = categories.category_id
@@ -101,7 +107,7 @@ pub async fn get_product(
         GetProductModel,
         r#"
             SELECT
-                product_id, product_name, price, stock, sku, category_name, product_image
+                product_id, product_name, price, stock, sku, category_name, product_image, products.created_at, products.updated_at
             FROM products
             LEFT JOIN categories
             ON products.category_id = categories.category_id
@@ -154,6 +160,8 @@ pub async fn create_product(
         sku: None,
         category_id: None,
         product_image: None,
+        created_at: None,
+        updated_at: None,
     };
 
     while let Ok(Some(field)) = multipart.next_field().await {
@@ -202,8 +210,8 @@ pub async fn create_product(
     let product = sqlx::query_as!(
         PostProductModel,
         r#"
-            INSERT INTO products (product_id, product_name, price, stock, sku, category_id, product_image)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            INSERT INTO products (product_id, product_name, price, stock, sku, category_id, product_image, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING *
         "#,
         product_id,
@@ -213,6 +221,8 @@ pub async fn create_product(
         product.sku,
         product.category_id,
         product.product_image,
+        Utc::now(),
+        Utc::now(),
     )
     .fetch_one(&app_state.db)
     .await
@@ -249,6 +259,8 @@ pub async fn update_product(
         sku: None,
         category_id: None,
         product_image: None,
+        created_at: None,
+        updated_at: None,
     };
 
     while let Ok(Some(field)) = multipart.next_field().await {
@@ -302,8 +314,9 @@ pub async fn update_product(
                 stock = COALESCE($3, stock),
                 sku = COALESCE($4, sku),
                 category_id = COALESCE($5, category_id),
-                product_image = COALESCE($6, product_image)
-            WHERE product_id = $7
+                product_image = COALESCE($6, product_image),
+                updated_at = COALESCE($7, updated_at)
+            WHERE product_id = $8
         "#,
         update_product.product_name,
         update_product.price,
@@ -311,6 +324,7 @@ pub async fn update_product(
         update_product.sku,
         update_product.category_id,
         update_product.product_image,
+        Utc::now(),
         product_id,
     )
     .execute(&app_state.db)

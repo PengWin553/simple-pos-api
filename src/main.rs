@@ -21,8 +21,6 @@ pub struct AppState {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    dotenvy::dotenv().expect("Unable to access .env file");
-
     let config = init_config().await;
 
     let listener = TcpListener::bind(config.address)
@@ -40,6 +38,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let app = app_router(app_state);
 
     axum::serve(listener, app)
+    .with_graceful_shutdown(services::shutdown_service::shutdown_signal())
     .await
     .expect("Error serving application");
 

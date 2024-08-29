@@ -2,6 +2,7 @@ use std::sync::Arc;
 use axum::{extract::{Path, Query, State}, http::StatusCode, response::IntoResponse, Json};
 use serde_json::{json, Value};
 use uuid::Uuid;
+use chrono::Utc;
 
 use crate::{models::{categories_model::
     CategoryModel, filter_model::FilterOptionsModel},
@@ -39,7 +40,7 @@ pub async fn get_all_categories(
     let categories = sqlx::query_as!(
         CategoryModel,
         r#"
-            SELECT category_id, category_name
+            SELECT category_id, category_name, created_at, updated_at
             FROM categories
             OFFSET $1
             LIMIT $2
@@ -83,12 +84,14 @@ pub async fn create_category(
     let category = sqlx::query_as!(
         CategoryModel,
         r#"
-            INSERT INTO categories (category_id, category_name)
-            VALUES ($1, $2)
+            INSERT INTO categories (category_id, category_name, created_at, updated_at)
+            VALUES ($1, $2, $3, $4)
             RETURNING *
         "#,
         category_id,
         category.category_name,
+        Utc::now(),
+        Utc::now(),
     )
     .fetch_one(&app_state.db)
     .await
@@ -118,10 +121,11 @@ pub async fn update_category(
     sqlx::query!(
         r#"
             UPDATE categories
-            SET category_name = $1
-            WHERE category_id = $2
+            SET category_name = $1, created_at = $2
+            WHERE category_id = $3
         "#,
         update_category.category_name,
+        Utc::now(),
         category_id,
     )
         .execute(&app_state.db)

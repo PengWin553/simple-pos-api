@@ -1,6 +1,6 @@
 use std::sync::Arc;
-use axum::{http::StatusCode, middleware, response::IntoResponse, routing::{get, patch, post}, Router};
-use tower_http::trace::TraceLayer;
+use axum::{http::{header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE}, Method, StatusCode}, middleware, response::IntoResponse, routing::{get, patch, post}, Router};
+use tower_http::{cors::{Any, CorsLayer}, trace::TraceLayer};
 
 use crate::{
     handlers::{
@@ -21,6 +21,19 @@ pub fn app_router(app_state: Arc<AppState>) -> Router {
             .nest("/api/category", category_route(app_state.clone()))
             .nest("/api/transaction", transaction_route(app_state.clone()))
         .layer(TraceLayer::new_for_http())
+        .layer(CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods([
+                Method::GET,
+                Method::POST,
+                Method::PATCH,
+                Method::DELETE,
+                ])
+            .allow_headers([
+                AUTHORIZATION,
+                CONTENT_TYPE,
+                ACCEPT,
+                ]))
         .fallback(handler_404)
 }
 

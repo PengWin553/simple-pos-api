@@ -27,7 +27,7 @@ pub async fn login(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({
                 "success": false,
-                "message": format!("Password hashing error: {}", e),
+                "message": format!("Database error: {}", e),
             })),
         )
     })?
@@ -87,6 +87,33 @@ pub async fn signup(
     State(app_state): State<Arc<AppState>>,
     Json(credentials): Json<SignupModel>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<Value>)> {
+    let user = sqlx::query!(
+        r#"
+            SELECT username
+            FROM accounts
+            WHERE username = $1
+        "#,
+        credentials.username.to_ascii_lowercase(),
+    )
+    .fetch_optional(&app_state.db)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({
+                "success": false,
+                "message": format!("Database error: {}", e),
+            })),
+        )
+    })?;
+
+    if user.is_some() {
+        let error_response = json!({
+            "success": false,
+            "message": "Username already taken",
+        });
+        return Err((StatusCode::BAD_REQUEST, Json(error_response)));
+    }
 
     let salt = SaltString::generate(&mut OsRng);
     let hashed_password = Argon2::default()
