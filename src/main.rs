@@ -1,3 +1,4 @@
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt};
 use std::{error::Error, sync::Arc};
 use config::init_config;
 use routes::app_router;
@@ -21,6 +22,10 @@ pub struct AppState {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    tracing_subscriber::registry()
+        .with(fmt::layer().pretty().with_writer(std::io::stdout))
+        .init();
+
     let config = init_config().await;
 
     let listener = TcpListener::bind(config.address)
