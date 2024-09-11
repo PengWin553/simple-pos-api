@@ -3,7 +3,7 @@ use serde_json::json;
 use uuid::Uuid;
 use std::sync::Arc;
 
-use crate::{models::product::
+use crate::{models::products_model::
     Product, AppState
 };
 
@@ -34,6 +34,7 @@ pub async fn create_product(
     State(app_state): State<Arc<AppState>>,
     Json(product): Json<Product>,
 ) -> Result<(StatusCode, String), (StatusCode, String)> {
+
     let result = sqlx::query_as!(
         Product,
         "
@@ -67,13 +68,14 @@ pub async fn update_product(
     Path(product_id): Path<Uuid>,
     Json(update_product): Json<Product>,
 ) {
-
+    todo!()
 }
 
 pub async fn delete_product(
     State(app_state): State<Arc<AppState>>,
     Path(product_id): Path<Uuid>,
 ) -> Result<(StatusCode, String), (StatusCode, String)> {
+    
     sqlx::query!("DELETE FROM products WHERE product_id = $1", product_id,)
         .execute(&app_state.db)
         .await
