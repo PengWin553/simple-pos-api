@@ -6,7 +6,7 @@ use crate::{
     handlers::{
         category::{create_category, delete_category, get_all_category, update_category},
         product::{create_product, delete_product, get_all_product, update_product},
-        transaction::get_all_transaction},
+        transaction::{create_transaction, get_all_transaction}},
     AppState
 };
 
@@ -46,6 +46,6 @@ pub fn category_route(app_state: Arc<AppState>) -> Router {
 
 pub fn transaction_route(app_state: Arc<AppState>) -> Router {
     Router::new()
-        .route("/", get(get_all_transaction))
+        .route("/", get(get_all_transaction).post(create_transaction))
         .with_state(app_state)
 }

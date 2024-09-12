@@ -12,9 +12,12 @@ pub async fn get_all_category(
     State(app_state): State<Arc<AppState>>,
 ) -> Result<(StatusCode, String), (StatusCode, String)>{
     
-    let result = sqlx::query_as!(
+    let data = sqlx::query_as!(
         Category,
-        "SELECT * FROM categories"
+        r#"
+            SELECT category_id, category_name
+            FROM categories
+        "#
     )
         .fetch_all(&app_state.db)
         .await
@@ -27,24 +30,24 @@ pub async fn get_all_category(
 
     Ok((
         StatusCode::OK,
-        json!({"success": true, "data": result}).to_string()
+        json!({"success": true, "data": data}).to_string()
     ))
 }
 
 pub async fn create_category(
     State(app_state): State<Arc<AppState>>,
-    Json(mut category): Json<Category> 
+    Json(category): Json<Category> 
 ) -> Result<(StatusCode, String), (StatusCode, String)> {
-
-    category.category_id = Some(Uuid::new_v4());
 
     let data = sqlx::query_as!(
         Category,
-        "INSERT INTO categories (category_id, category_name)
-         VALUES ($1, $2)
-         RETURNING *",
-        category.category_id,
-        category.category_name
+        r#"
+            INSERT INTO categories (category_id, category_name)
+            VALUES ($1, $2)
+            RETURNING *
+        "#,
+        Uuid::new_v4(),
+        category.category_name,
     )
     .fetch_one(&app_state.db)
     .await
@@ -62,32 +65,26 @@ pub async fn create_category(
 pub async fn update_category(
     State(app_state): State<Arc<AppState>>,
     Path(category_id): Path<Uuid>,
-    Json(category_update): Json<Category>
+    Json(update_category): Json<Category>
 ) -> Result<(StatusCode, String), (StatusCode, String)> {
 
-    let mut query = "UPDATE categories SET category_id = $1".to_owned();
-
-    let mut i = 2;
-
-    if category_update.category_name.is_some() {
-        query.push_str(&format!(", category_name = ${i}"));
-        i += 1
-    }
-
-    query.push_str(&format!(" WHERE category_id = $1 "));
-
-    let mut s = sqlx::query(&query).bind(category_id);
-
-    if category_update.category_name.is_some() {
-        s = s.bind(category_update.category_name);
-    }
-
-    s.execute(&app_state.db).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({"success": false, "message": e.to_string()}).to_string(),
-        )
-    })?;
+    sqlx::query!(
+        r#"
+            UPDATE categories
+            SET category_name = $1
+            WHERE category_id = $2
+        "#,
+        update_category.category_name,
+        category_id,
+    )
+        .execute(&app_state.db)
+        .await
+        .map_err(|e| {
+            (
+                 StatusCode::INTERNAL_SERVER_ERROR,
+                 json!({"success": false, "message": e.to_string()}).to_string(),
+            )
+         })?;
 
     Ok((
         StatusCode::OK,
@@ -100,7 +97,13 @@ pub async fn delete_category(
     Path(category_id): Path<Uuid>
 ) -> Result<(StatusCode, String), (StatusCode, String)> {
 
-    sqlx::query!("DELETE FROM categories WHERE category_id = $1", category_id)
+    sqlx::query!(
+        r#"
+            DELETE FROM categories
+            WHERE category_id = $1
+        "#,
+        category_id
+    )
         .execute(&app_state.db)
         .await
         .map_err(|e| {
