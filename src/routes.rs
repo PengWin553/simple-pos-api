@@ -4,9 +4,9 @@ use axum::{http::StatusCode, response::IntoResponse, routing::{get, patch}, Rout
 
 use crate::{
     handlers::{
-        category::{create_category, delete_category, get_all_category, update_category},
-        product::{create_product, delete_product, get_all_product, update_product},
-        transaction::{create_transaction, get_all_transaction}},
+        category::{create_category, delete_category, get_all_categories, update_category},
+        product::{create_product, delete_product, get_all_products, get_product, update_product},
+        transaction::{create_transaction, get_all_transactions}},
     AppState
 };
 
@@ -32,20 +32,22 @@ async fn handler_404() -> impl IntoResponse {
 
 pub fn product_route(app_state: Arc<AppState>) -> Router {
     Router::new()
-        .route("/", get(get_all_product).post(create_product))
-        .route("/:product_id", patch(update_product).delete(delete_product))
+        .route("/", get(get_all_products).post(create_product))
+        .route("/:product_id", get( get_product)
+            .patch(update_product)
+            .delete(delete_product))
         .with_state(app_state)
 }
 
 pub fn category_route(app_state: Arc<AppState>) -> Router {
     Router::new()
-        .route("/", get(get_all_category).post(create_category))
+        .route("/", get(get_all_categories).post(create_category))
         .route("/:category_id", patch(update_category).delete(delete_category))
         .with_state(app_state)
 }
 
 pub fn transaction_route(app_state: Arc<AppState>) -> Router {
     Router::new()
-        .route("/", get(get_all_transaction).post(create_transaction))
+        .route("/", get(get_all_transactions).post(create_transaction))
         .with_state(app_state)
 }

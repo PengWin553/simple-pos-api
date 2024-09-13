@@ -20,6 +20,8 @@ pub struct TransactionInputModel {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TransactionItem {
+    pub product_name: String,
+    pub product_category: String,
     pub quantity: u32,
     pub price: f64,
 }

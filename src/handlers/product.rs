@@ -1,50 +1,128 @@
-use axum::{extract::{Path, State}, http::StatusCode, response::IntoResponse, Json};
+use axum::{extract::{Path, Query, State}, http::StatusCode, response::IntoResponse, Json};
 use serde_json::{json, Value};
 use uuid::Uuid;
 use std::sync::Arc;
 
-use crate::{models::products_model::
-    Product, AppState
+use crate::{models::{filter_model::FilterOptionsModel, products_model::{GetProductModel, PostProductModel}}, AppState
 };
 
-//TODO: offset and limit
-pub async fn get_all_product(
+pub async fn get_all_products(
     State(app_state): State<Arc<AppState>>,
+    filter_options: Option<Query<FilterOptionsModel>>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<Value>)> {
 
-    let result = sqlx::query_as!(
-        Product,
+    let Query(opts) = filter_options.unwrap_or_default();
+
+    let limit = opts.limit.unwrap_or(10);
+    let offset = (opts.offset.unwrap_or(1) - 1) * limit;
+
+    let total_products: Option<i64> = sqlx::query_scalar!(
         r#"
-            SELECT * FROM products
+            SELECT COUNT(*)
+            FROM products
+        "#
+    )
+    .fetch_one(&app_state.db)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({
+                "success" : false,
+                "message" : e.to_string(),
+            })),
+        )
+    })?;
+
+    let product = sqlx::query_as!(
+        GetProductModel,
+        r#"
+            SELECT
+                product_id, product_name, price, stock, sku, category_name
+            FROM products
+            LEFT JOIN categories
+            ON products.category_id = categories.category_id
             ORDER BY product_id
-            
+            OFFSET $1
+            LIMIT $2
         "#,
+        offset,
+        limit,
     )
         .fetch_all(&app_state.db)
         .await
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"success" : false, "message" : e.to_string()}),)
+                Json(json!({
+                    "success" : false,
+                    "message" : e.to_string(),
+                })),
             )
         })?;
+    
+    let json_response = json!({
+        "success" : true,
+        "data" : product,
+        "total": total_products,
+        "limit": limit,
+        "offset": offset,
+    });
 
     Ok((
         StatusCode::OK,
-        Json(json!({"success" : true, "data" : result})),
+        Json(json_response),
+    ))
+}
+
+pub async fn get_product(
+    State(app_state): State<Arc<AppState>>,
+    Path(product_id): Path<Uuid>,
+) -> Result<impl IntoResponse, (StatusCode, Json<Value>)> {
+
+    let product = sqlx::query_as!(
+        GetProductModel,
+        r#"
+            SELECT
+                product_id, product_name, price, stock, sku, category_name
+            FROM products
+            LEFT JOIN categories
+            ON products.category_id = categories.category_id
+            WHERE product_id = $1
+        "#,
+        product_id
+    )
+    .fetch_one(&app_state.db)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({
+                "success": false,
+                "message": e.to_string(),
+            })),
+        )
+    })?;
+
+    Ok((
+        StatusCode::OK,
+        Json(json!({
+            "success": false,
+            "data": product,
+        })),
     ))
 }
 
 pub async fn create_product(
     State(app_state): State<Arc<AppState>>,
-    Json(product): Json<Product>,
-) -> Result<(StatusCode, String), (StatusCode, String)> {
+    Json(product): Json<PostProductModel>,
+) -> Result<impl IntoResponse, (StatusCode, Json<Value>)> {
 
-    let result = sqlx::query_as!(
-        Product,
+    let product = sqlx::query_as!(
+        PostProductModel,
         r#"
-            INSERT INTO products (product_id, product_name, price, stock, sku)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO products (product_id, product_name, price, stock, sku, category_id)
+            VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *
         "#,
         Uuid::new_v4(),
@@ -52,81 +130,70 @@ pub async fn create_product(
         product.price,
         product.stock,
         product.sku,
+        product.category_id,
     )
     .fetch_one(&app_state.db)
     .await
     .map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            json!({"success": false, "message": e.to_string()}).to_string(),
+            Json(json!({
+                "success": false,
+                "message": e.to_string(),
+            })),
         )
     })?;
 
     Ok((
         StatusCode::CREATED,
-        json!({"success": true, "data": result}).to_string(),
+        Json(json!({
+            "success": true,
+            "data": product,
+        })),
     ))
 }
 
 pub async fn update_product(
     State(app_state): State<Arc<AppState>>,
     Path(product_id): Path<Uuid>,
-    Json(update_product): Json<Product>,
-) ->  Result<(StatusCode, String), (StatusCode, String)> {
-    
-    let mut query = "UPDATE products SET product_id = $1".to_owned();
+    Json(update_product): Json<PostProductModel>,
+) ->  Result<impl IntoResponse, (StatusCode, Json<Value>)> {
 
-    let mut  i = 2;
-
-    if update_product.product_name.is_some() {
-        query.push_str(&format!(", product_name = ${i}"));
-        i += 1
-    };
-
-    if update_product.price.is_some() {
-        query.push_str(&format!(", price = ${i}"));
-        i += 1
-    };
-
-    if update_product.stock.is_some() {
-        query.push_str(&format!(", stock = ${i}"));
-        i += 1
-    };
-
-    if update_product.sku.is_some() {
-        query.push_str(&format!(", sku = ${i}"));
-    };
-
-    query.push_str(&format!(" WHERE product_id = $1 "));
-
-    let mut s = sqlx::query(&query).bind(product_id);
-
-    if update_product.product_name.is_some() {
-        s = s.bind(update_product.product_name);
-    }
-
-    if update_product.price.is_some() {
-        s = s.bind(update_product.price);
-    }
-
-    if update_product.stock.is_some() {
-        s = s.bind(update_product.stock);
-    }
-
-    if update_product.sku.is_some() {
-        s = s.bind(update_product.sku);
-    }
-
-    s.execute(&app_state.db).await.map_err(|e| {
+    sqlx::query!(
+        r#"
+            UPDATE products
+            SET
+                product_name = COALESCE($1, product_name),
+                price = COALESCE($2, price),
+                stock = COALESCE($3, stock),
+                sku = COALESCE($4, sku),
+                category_id = COALESCE($5, category_id)
+            WHERE product_id = $6
+        "#,
+        update_product.product_name,
+        update_product.price,
+        update_product.stock,
+        update_product.sku,
+        update_product.category_id,
+        product_id,
+    )
+    .execute(&app_state.db)
+    .await
+    .map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            json!({"success": false, "message": e.to_string()}).to_string(),
+            Json(json!({
+                "success": false,
+                "message": e.to_string(),
+            })),
         )
     })?;
 
     Ok((
         StatusCode::OK,
-        json!({"success": true}).to_string(),
+        Json(json!({
+            "success": true,
+        })),
     ))
 
 }
@@ -134,7 +201,7 @@ pub async fn update_product(
 pub async fn delete_product(
     State(app_state): State<Arc<AppState>>,
     Path(product_id): Path<Uuid>,
-) -> Result<(StatusCode, String), (StatusCode, String)> {
+) -> Result<impl IntoResponse, (StatusCode, Json<Value>)> {
 
     sqlx::query!(
         r#"
@@ -148,9 +215,17 @@ pub async fn delete_product(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                json!({"success": false, "message": e.to_string()}).to_string(),
+                Json(json!({
+                    "success": false,
+                    "message": e.to_string(),
+                })),
             )
         })?;
 
-    Ok((StatusCode::OK, json!({"success":true}).to_string()))
+    Ok((
+        StatusCode::OK,
+        Json(json!({
+            "success":true,
+        })),
+    ))
 }
