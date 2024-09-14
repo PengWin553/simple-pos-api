@@ -8,10 +8,12 @@ mod config;
 mod routes;
 mod handlers;
 mod models;
+mod middlewares;
 
 #[derive(Clone)]
 pub struct AppState {
     pub db: PgPool,
+    pub env: String,
 }
 
 #[tokio::main]
@@ -26,7 +28,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     println!("Listening on http://{}", listener.local_addr().unwrap());
 
-    let app_state = Arc::new(AppState { db: config.pool.clone()});
+    let app_state = Arc::new(AppState {
+        db: config.pool.clone(),
+        env: config.jwt.clone(),
+    });
 
     let app = app_router(app_state);
 
