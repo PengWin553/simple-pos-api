@@ -1,9 +1,10 @@
-use axum::{extract::{Path, Query, State}, http::StatusCode, response::IntoResponse, Json};
+use axum::{extract::{Multipart, Path, Query, State}, http::StatusCode, response::IntoResponse, Json};
+use rust_decimal::Decimal;
 use serde_json::{json, Value};
 use uuid::Uuid;
 use std::sync::Arc;
 
-use crate::{models::{filter_model::FilterOptionsModel, products_model::{GetProductModel, PostProductModel}}, AppState
+use crate::{models::{filter_model::FilterOptionsModel, products_model::{GetProductModel, PostProductModel}}, services::image_service::process_product_image, AppState
 };
 
 pub async fn get_all_products(
@@ -38,7 +39,7 @@ pub async fn get_all_products(
         GetProductModel,
         r#"
             SELECT
-                product_id, product_name, price, stock, sku, category_name
+                product_id, product_name, price, stock, sku, category_name, product_image
             FROM products
             LEFT JOIN categories
             ON products.category_id = categories.category_id
@@ -84,7 +85,7 @@ pub async fn get_product(
         GetProductModel,
         r#"
             SELECT
-                product_id, product_name, price, stock, sku, category_name
+                product_id, product_name, price, stock, sku, category_name, product_image
             FROM products
             LEFT JOIN categories
             ON products.category_id = categories.category_id
@@ -115,14 +116,68 @@ pub async fn get_product(
 
 pub async fn create_product(
     State(app_state): State<Arc<AppState>>,
-    Json(product): Json<PostProductModel>,
+    mut multipart: Multipart,
 ) -> Result<impl IntoResponse, (StatusCode, Json<Value>)> {
+
+    let mut product = PostProductModel {
+        product_id: None,
+        product_name: None,
+        price: None,
+        stock: None,
+        sku: None,
+        category_id: None,
+        product_image: None,
+    };
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .unwrap() {
+            match field.name() {
+                Some("product_name") => {
+                    if let Ok(text) = field.text().await {
+                        product.product_name = Some(text);
+                    }
+                }
+                Some("price") => {
+                    if let Ok(price_str) = field.text().await {
+                        product.price = Some(price_str.parse::<Decimal>().unwrap());
+                    }
+                }
+                Some("stock") => {
+                    if let Ok(stock_str) = field.text().await {
+                        product.stock = Some(stock_str.parse::<i32>().unwrap());
+                    }
+                }
+                Some("sku") => {
+                    if let Ok(text) = field.text().await {
+                        product.sku = Some(text);
+                    }
+                }
+                Some("category_id") => {
+                    if let Ok(id_str) = field.text().await {
+                        product.category_id = Some(Uuid::parse_str(&id_str).unwrap());
+                    }
+                }
+                Some("product_image") => {
+                    product.product_image = Some(process_product_image(field, &app_state).await?);
+                }
+                _ => {
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({
+                            "error": "Unexpected field found in form data"
+                        })),
+                    ));
+                }
+            }
+        }
 
     let product = sqlx::query_as!(
         PostProductModel,
         r#"
-            INSERT INTO products (product_id, product_name, price, stock, sku, category_id)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO products (product_id, product_name, price, stock, sku, category_id, product_image)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING *
         "#,
         Uuid::new_v4(),
@@ -131,6 +186,7 @@ pub async fn create_product(
         product.stock,
         product.sku,
         product.category_id,
+        product.product_image,
     )
     .fetch_one(&app_state.db)
     .await

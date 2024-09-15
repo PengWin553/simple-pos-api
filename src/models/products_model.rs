@@ -10,6 +10,7 @@ pub struct GetProductModel {
     pub stock: Option<i32>,
     pub sku: Option<String>,
     pub category_name: Option<String>,
+    pub product_image: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -20,4 +21,5 @@ pub struct PostProductModel {
     pub stock: Option<i32>,
     pub sku: Option<String>,
     pub category_id: Option<Uuid>,
+    pub product_image: Option<String>,
 }

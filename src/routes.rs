@@ -1,6 +1,6 @@
 use std::sync::Arc;
-
 use axum::{http::StatusCode, middleware, response::IntoResponse, routing::{get, patch, post}, Router};
+use tower_http::trace::TraceLayer;
 
 use crate::{
     handlers::{
@@ -20,6 +20,7 @@ pub fn app_router(app_state: Arc<AppState>) -> Router {
             .nest("/api/product", product_route(app_state.clone()))
             .nest("/api/category", category_route(app_state.clone()))
             .nest("/api/transaction", transaction_route(app_state.clone()))
+        .layer(TraceLayer::new_for_http())
         .fallback(handler_404)
 }
 
