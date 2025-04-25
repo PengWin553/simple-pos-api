@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 argon2 = "0.5.3"
-axum = { version = "0.8.1", features = ["multipart"] }
+axum = { version = "0.8.3", features = ["multipart"] }
 chrono = { version = "0.4.40", features = ["serde"] }
 data-encoding = "2.8.0"
 dotenvy = "0.15.7"
